@@ -28,8 +28,8 @@ public final class AStarPathfinder {
     }
 
     private static double heuristic(Node from, Node to) {
-        return Math.hypot((double) to.getX() - from.getX(),
-                (double) to.getY() - from.getY());
+        return 1.5 * (Math.hypot((double) to.getX() - from.getX(),
+                (double) to.getY() - from.getY()));
     }
 
     private static List<Node> buildPath(Map<Node, Node> previous, Node goal) {
