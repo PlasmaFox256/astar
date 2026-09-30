@@ -25,17 +25,22 @@ public final class AStarDesktop extends ApplicationAdapter {
     private static final int WINDOW_HEIGHT = 790;
     private static final Color BACKGROUND = new Color(.12f, .14f, .18f, 1f);
     private static final Color PANEL = new Color(.18f, .21f, .26f, 1f);
+    private static final Color PANEL_PRESSED = new Color(.28f, .32f, .39f, 1f);
+    private static final Color PANEL_DISABLED = new Color(.15f, .17f, .20f, 1f);
+    private static final Color TOOL_PRESSED = new Color(.18f, .34f, .74f, 1f);
+    private static final Color TEXT_DISABLED = new Color(.55f, .58f, .62f, 1f);
     private static final Color OUTLINE = new Color(.27f, .27f, .27f, 1f);
     private static final Color OPEN = new Color(.25f, .77f, .35f, 1f);
     private static final Color CLOSED = new Color(.86f, .27f, .27f, 1f);
     private static final Color PATH = new Color(.54f, .83f, 1f, 1f);
     private static final Color ENDPOINT = new Color(.10f, .23f, .58f, 1f);
-    private static final String[] BUTTONS = {"Run/Pause", "Step", "Slower", "Faster", "Restart", "Edit map"};
+    private static final String[] BUTTONS = {"Run", "Step", "Slower", "Faster", "Restart", "Edit map"};
     private static final String[] EDITOR_BUTTONS = {"Wall", "Eraser", "Set Start", "Set Finish", "Save", "Cancel", "Clear all"};
     private static final float BUTTON_Y = 68f;
     private static final float BUTTON_H = 34f;
     private static final float BUTTON_W = 130f;
     private static final float BUTTON_GAP = 10f;
+    private static final float PRESS_FEEDBACK_SECONDS = .16f;
 
     private Grid grid;
     private final AStarPathfinder pathfinder = new AStarPathfinder();
@@ -49,6 +54,9 @@ public final class AStarDesktop extends ApplicationAdapter {
     private boolean resumeAfterCancel;
     private boolean painting;
     private boolean running;
+    private int pressedButton = -1;
+    private boolean pressedInEditor;
+    private float pressFeedbackTime;
     private int stepsPerSecond = 8;
     private float accumulated;
     private float tileSize;
@@ -147,6 +155,9 @@ public final class AStarDesktop extends ApplicationAdapter {
                         default: return false;
                     }
                 }
+                if (hasFoundPath() && keycode != Input.Keys.R && keycode != Input.Keys.E) {
+                    return false;
+                }
                 switch (keycode) {
                     case Input.Keys.SPACE: toggleRunning(); return true;
                     case Input.Keys.N: stepOnce(); return true;
@@ -176,6 +187,7 @@ public final class AStarDesktop extends ApplicationAdapter {
 
     @Override
     public void render() {
+        pressFeedbackTime = Math.max(0f, pressFeedbackTime - Gdx.graphics.getDeltaTime());
         if (running && search != null && !search.isFinished()) {
             accumulated += Math.min(Gdx.graphics.getDeltaTime(), .25f);
             float interval = 1f / stepsPerSecond;
@@ -209,7 +221,10 @@ public final class AStarDesktop extends ApplicationAdapter {
         }
         float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth(buttons)) / 2f;
         for (int i = 0; i < buttons.length; i++) {
-            shapes.setColor(editorGrid != null && i == editorTool.ordinal() ? ENDPOINT : PANEL);
+            boolean selectedTool = editorGrid != null && i == editorTool.ordinal();
+            if (isButtonDisabled(i)) shapes.setColor(PANEL_DISABLED);
+            else if (isButtonPressed(i)) shapes.setColor(selectedTool ? TOOL_PRESSED : PANEL_PRESSED);
+            else shapes.setColor(selectedTool ? ENDPOINT : PANEL);
             shapes.rect(buttonsLeft + i * (BUTTON_W + BUTTON_GAP),
                     BUTTON_Y, BUTTON_W, BUTTON_H);
         }
@@ -260,9 +275,11 @@ public final class AStarDesktop extends ApplicationAdapter {
         }
         float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth(buttons)) / 2f;
         for (int i = 0; i < buttons.length; i++) {
-            drawCentered(normalFont, buttons[i], buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
+            normalFont.setColor(isButtonDisabled(i) ? TEXT_DISABLED : Color.WHITE);
+            drawCentered(normalFont, buttonLabel(i), buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
                     BUTTON_Y + 24f);
         }
+        normalFont.setColor(Color.WHITE);
         drawCentered(largeFont, status(), Gdx.graphics.getWidth() / 2f, 132f);
         if (editorGrid != null) {
             drawCentered(normalFont, "Paint or drag on the map. Eraser clears walls and endpoints.",
@@ -272,7 +289,9 @@ public final class AStarDesktop extends ApplicationAdapter {
         } else {
             drawCentered(normalFont, "Green: open   Red: closed   Light blue: path   Dark blue: endpoints",
                     Gdx.graphics.getWidth() / 2f, 48f);
-            drawCentered(normalFont, "Space: run/pause   N: step   +/-: speed   R: restart   E: edit map",
+            drawCentered(normalFont, hasFoundPath()
+                            ? "Path complete   R: restart   E: edit map"
+                            : "Space: run/pause   N: step   +/-: speed   R: restart   E: edit map",
                     Gdx.graphics.getWidth() / 2f, 25f);
         }
         batch.end();
@@ -287,7 +306,7 @@ public final class AStarDesktop extends ApplicationAdapter {
         if (editorGrid != null) return "Editing map - " + editorTool.name().toLowerCase() + " selected";
         if (start == null) return "Click a white tile to choose START";
         if (finish == null) return "Click another white tile to choose FINISH";
-        if (search == null) return "Ready - press Run/Pause or Step   |   " + stepsPerSecond + " steps/s";
+        if (search == null) return "Ready - press Run or Step   |   " + stepsPerSecond + " steps/s";
         if (search.isFinished()) {
             return search.getPath().isEmpty() ? "No path found - edit map or endpoints" :
                     "Path found: " + (search.getPath().size() - 1) + " moves";
@@ -304,6 +323,10 @@ public final class AStarDesktop extends ApplicationAdapter {
             float left = buttonsLeft + i * (BUTTON_W + BUTTON_GAP);
             if (screenX >= left && screenX < left + BUTTON_W
                     && screenY >= BUTTON_Y && screenY < BUTTON_Y + BUTTON_H) {
+                if (isButtonDisabled(i)) return false;
+                pressedButton = i;
+                pressedInEditor = editorGrid != null;
+                pressFeedbackTime = PRESS_FEEDBACK_SECONDS;
                 if (editorGrid != null) {
                     switch (i) {
                         case 0: editorTool = EditorTool.WALL; break;
@@ -416,6 +439,22 @@ public final class AStarDesktop extends ApplicationAdapter {
     private Node visibleStart() { return editorGrid == null ? start : editorStart; }
     private Node visibleFinish() { return editorGrid == null ? finish : editorFinish; }
     private String[] visibleButtons() { return editorGrid == null ? BUTTONS : EDITOR_BUTTONS; }
+    private String buttonLabel(int index) {
+        return editorGrid == null && index == 0 ? (running ? "Pause" : "Run") : visibleButtons()[index];
+    }
+
+    private boolean hasFoundPath() {
+        return search != null && search.isFinished() && !search.getPath().isEmpty();
+    }
+
+    private boolean isButtonDisabled(int index) {
+        return editorGrid == null && hasFoundPath() && index < 4;
+    }
+
+    private boolean isButtonPressed(int index) {
+        return pressFeedbackTime > 0f && pressedButton == index
+                && pressedInEditor == (editorGrid != null);
+    }
 
     private static float buttonRowWidth(String[] buttons) {
         return buttons.length * BUTTON_W + (buttons.length - 1) * BUTTON_GAP;

@@ -14,11 +14,14 @@ cannot be selected. Use the buttons or keyboard:
 
 | Action | Button | Key |
 | --- | --- | --- |
-| Start or pause playback | Run/Pause | Space |
+| Start or pause playback | Run / Pause | Space |
 | Expand one node and pause | Step | N |
 | Adjust expansions per second | Slower / Faster | - / + |
 | Clear search and keep endpoints | Restart | R |
 | Edit walls and endpoints | Edit map | E |
+
+Buttons brighten briefly when clicked. After a path is found, only Restart and
+Edit map remain available.
 
 `PrebuiltLevel` supplies the initial map independently of the desktop renderer.
 Other editors can build a `Grid` from their own cells or use
