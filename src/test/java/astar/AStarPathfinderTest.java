@@ -40,6 +40,32 @@ public final class AStarPathfinderTest {
         Grid copied = new Grid(cells);
         cells[0][1] = false;
         check(copied.isWalkable(1, 0), "Grid should copy its input");
+        Grid edited = copied.withWalkability(1, 0, false);
+        check(copied.isWalkable(1, 0) && !edited.isWalkable(1, 0),
+                "Editing a grid should preserve the original");
+
+        AStarPathfinder.Search search = pathfinder.beginSearch(detour,
+                new Node(0, 0), new Node(3, 0));
+        check(search.getOpenNodes().contains(new Node(0, 0)), "Start should be open initially");
+        check(search.getClosedNodes().isEmpty(), "Nothing should be closed initially");
+        check(search.step(), "First expansion should advance");
+        check(search.getClosedNodes().contains(new Node(0, 0)), "Expanded start should be closed");
+        check(search.getOpenNodes().contains(new Node(0, 1)), "Neighbor should become open");
+        check(!search.getOpenNodes().contains(new Node(0, 0)), "Closed start should leave open set");
+        while (!search.isFinished()) search.step();
+        checkPath(search.getPath(), detour, new Node(0, 0), new Node(3, 0), 8);
+        check(!search.step(), "Finished search must not advance");
+
+        AStarPathfinder.Search impossible = pathfinder.beginSearch(divided,
+                new Node(0, 0), new Node(2, 0));
+        while (!impossible.isFinished()) impossible.step();
+        check(impossible.getPath().isEmpty(), "Unreachable search should have no path");
+
+        Grid level = PrebuiltLevel.create();
+        check(level.getWidth() == 24 && level.getHeight() == 16,
+                "Prebuilt level size changed unexpectedly");
+        check(!level.isWalkable(4, 1) && level.isWalkable(0, 0),
+                "Prebuilt level walls should match the map source");
 
         System.out.println("AStarPathfinder tests passed");
     }

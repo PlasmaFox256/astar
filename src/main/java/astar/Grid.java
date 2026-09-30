@@ -35,4 +35,17 @@ public final class Grid {
     public boolean isWalkable(int x, int y) {
         return x >= 0 && x < width && y >= 0 && y < height && walkable[y][x];
     }
+
+    /** Returns a new grid with one changed tile, suitable for future map editing. */
+    public Grid withWalkability(int x, int y, boolean value) {
+        if (x < 0 || x >= width || y < 0 || y >= height) {
+            throw new IndexOutOfBoundsException("Tile outside grid: " + x + ", " + y);
+        }
+        boolean[][] copy = new boolean[height][width];
+        for (int row = 0; row < height; row++) {
+            System.arraycopy(walkable[row], 0, copy[row], 0, width);
+        }
+        copy[y][x] = value;
+        return new Grid(copy);
+    }
 }
