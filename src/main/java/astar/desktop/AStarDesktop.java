@@ -196,8 +196,6 @@ public final class AStarDesktop extends ApplicationAdapter {
     private void drawText() {
         batch.begin();
         font.setColor(Color.WHITE);
-        drawCentered("A* PATHFINDING", Gdx.graphics.getWidth() / 2f,
-                Gdx.graphics.getHeight() - 17f);
         font.getData().setScale(1f);
         layout.setText(font, "FINISH");
         font.getData().setScale(Math.min(.78f, (tileSize - 4f) / layout.width));
@@ -214,8 +212,9 @@ public final class AStarDesktop extends ApplicationAdapter {
             drawCentered(BUTTONS[i], buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
                     BUTTON_Y + 24f);
         }
-        drawCentered(status(), Gdx.graphics.getWidth() / 2f, 125f);
-        font.getData().setScale(.9f);
+        font.getData().setScale(1.4f);
+        drawCentered(status(), Gdx.graphics.getWidth() / 2f, 132f);
+        font.getData().setScale(1f);
         drawCentered("Green: open   Red: closed   Light blue: path   Dark blue: endpoints",
                 Gdx.graphics.getWidth() / 2f, 48f);
         drawCentered("Space: run/pause   N: step   +/-: speed   R: restart   C: choose tiles",
