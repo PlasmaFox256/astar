@@ -18,7 +18,12 @@ cannot be selected. Use the buttons or keyboard:
 | Expand one node and pause | Step | N |
 | Adjust expansions per second | Slower / Faster | - / + |
 | Clear search and keep endpoints | Restart | R |
-| Choose new endpoints | Choose tiles | C |
+| Edit walls and endpoints | Edit map | E |
+
+`PrebuiltLevel` supplies the initial map independently of the desktop renderer.
+Other editors can build a `Grid` from their own cells or use
+`Grid.withWalkability()`, then call `AStarDesktop.replaceGrid()` on the LibGDX
+render thread. Replacing the grid clears the selected endpoints and search.
 
 ## Pathfinder API
 

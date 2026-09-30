@@ -17,6 +17,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import java.util.Arrays;
 
 /** Interactive desktop view of the existing four-direction A* pathfinder. */
 public final class AStarDesktop extends ApplicationAdapter {
@@ -29,7 +30,8 @@ public final class AStarDesktop extends ApplicationAdapter {
     private static final Color CLOSED = new Color(.86f, .27f, .27f, 1f);
     private static final Color PATH = new Color(.54f, .83f, 1f, 1f);
     private static final Color ENDPOINT = new Color(.10f, .23f, .58f, 1f);
-    private static final String[] BUTTONS = {"Run/Pause", "Step", "Slower", "Faster", "Restart", "Choose tiles"};
+    private static final String[] BUTTONS = {"Run/Pause", "Step", "Slower", "Faster", "Restart", "Edit map"};
+    private static final String[] EDITOR_BUTTONS = {"Wall", "Eraser", "Set Start", "Set Finish", "Save", "Cancel", "Clear all"};
     private static final float BUTTON_Y = 68f;
     private static final float BUTTON_H = 34f;
     private static final float BUTTON_W = 130f;
@@ -40,6 +42,12 @@ public final class AStarDesktop extends ApplicationAdapter {
     private AStarPathfinder.Search search;
     private Node start;
     private Node finish;
+    private Grid editorGrid;
+    private Node editorStart;
+    private Node editorFinish;
+    private EditorTool editorTool = EditorTool.WALL;
+    private boolean resumeAfterCancel;
+    private boolean painting;
     private boolean running;
     private int stepsPerSecond = 8;
     private float accumulated;
@@ -53,6 +61,8 @@ public final class AStarDesktop extends ApplicationAdapter {
     private BitmapFont normalFont;
     private BitmapFont largeFont;
     private GlyphLayout layout;
+
+    private enum EditorTool { WALL, ERASER, START, FINISH }
 
     public static void main(String[] args) {
         Lwjgl3ApplicationConfiguration config = new Lwjgl3ApplicationConfiguration();
@@ -76,6 +86,11 @@ public final class AStarDesktop extends ApplicationAdapter {
             throw new IllegalArgumentException("Grid is required");
         }
         this.grid = grid;
+        editorGrid = null;
+        editorStart = null;
+        editorFinish = null;
+        resumeAfterCancel = false;
+        painting = false;
         chooseTiles();
         if (camera != null) {
             resize(Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
@@ -96,21 +111,49 @@ public final class AStarDesktop extends ApplicationAdapter {
             @Override
             public boolean touchDown(int screenX, int screenY, int pointer, int button) {
                 if (button == Input.Buttons.LEFT) {
-                    onClick(screenX, Gdx.graphics.getHeight() - screenY);
+                    painting = onClick(screenX, Gdx.graphics.getHeight() - screenY);
                     return true;
                 }
                 return false;
             }
 
             @Override
+            public boolean touchDragged(int screenX, int screenY, int pointer) {
+                if (painting && editorGrid != null
+                        && (editorTool == EditorTool.WALL || editorTool == EditorTool.ERASER)) {
+                    paintTile(screenX, Gdx.graphics.getHeight() - screenY);
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public boolean touchUp(int screenX, int screenY, int pointer, int button) {
+                if (button == Input.Buttons.LEFT) painting = false;
+                return false;
+            }
+
+            @Override
             public boolean keyDown(int keycode) {
+                if (editorGrid != null) {
+                    switch (keycode) {
+                        case Input.Keys.NUM_1: editorTool = EditorTool.WALL; return true;
+                        case Input.Keys.NUM_2: editorTool = EditorTool.ERASER; return true;
+                        case Input.Keys.NUM_3: editorTool = EditorTool.START; return true;
+                        case Input.Keys.NUM_4: editorTool = EditorTool.FINISH; return true;
+                        case Input.Keys.S: saveEditor(); return true;
+                        case Input.Keys.ESCAPE: cancelEditor(); return true;
+                        case Input.Keys.DEL: clearEditor(); return true;
+                        default: return false;
+                    }
+                }
                 switch (keycode) {
                     case Input.Keys.SPACE: toggleRunning(); return true;
                     case Input.Keys.N: stepOnce(); return true;
                     case Input.Keys.MINUS: changeSpeed(-1); return true;
                     case Input.Keys.EQUALS: changeSpeed(1); return true;
                     case Input.Keys.R: restart(); return true;
-                    case Input.Keys.C: chooseTiles(); return true;
+                    case Input.Keys.E: openEditor(); return true;
                     default: return false;
                 }
             }
@@ -124,12 +167,11 @@ public final class AStarDesktop extends ApplicationAdapter {
         }
         camera.setToOrtho(false, width, height);
         camera.update();
-        if (tileSize == 0f) {
-            tileSize = (float) Math.floor(Math.min((width - 40f) / grid.getWidth(),
-                    (height - 175f) / grid.getHeight()));
-        }
-        gridLeft = Math.round((width - tileSize * grid.getWidth()) / 2f);
-        gridBottom = Math.round(140f + (height - 155f - tileSize * grid.getHeight()) / 2f);
+        Grid visible = visibleGrid();
+        tileSize = (float) Math.floor(Math.min((width - 40f) / visible.getWidth(),
+                (height - 175f) / visible.getHeight()));
+        gridLeft = Math.round((width - tileSize * visible.getWidth()) / 2f);
+        gridBottom = Math.round(140f + (height - 155f - tileSize * visible.getHeight()) / 2f);
     }
 
     @Override
@@ -154,33 +196,35 @@ public final class AStarDesktop extends ApplicationAdapter {
     }
 
     private void drawShapes() {
+        Grid visible = visibleGrid();
+        String[] buttons = visibleButtons();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        for (int y = 0; y < grid.getHeight(); y++) {
-            for (int x = 0; x < grid.getWidth(); x++) {
+        for (int y = 0; y < visible.getHeight(); y++) {
+            for (int x = 0; x < visible.getWidth(); x++) {
                 shapes.setColor(tileColor(x, y));
                 shapes.rect(gridLeft + x * tileSize,
-                        gridBottom + (grid.getHeight() - y - 1) * tileSize,
+                        gridBottom + (visible.getHeight() - y - 1) * tileSize,
                         tileSize, tileSize);
             }
         }
-        float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth()) / 2f;
-        for (int i = 0; i < BUTTONS.length; i++) {
-            shapes.setColor(PANEL);
+        float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth(buttons)) / 2f;
+        for (int i = 0; i < buttons.length; i++) {
+            shapes.setColor(editorGrid != null && i == editorTool.ordinal() ? ENDPOINT : PANEL);
             shapes.rect(buttonsLeft + i * (BUTTON_W + BUTTON_GAP),
                     BUTTON_Y, BUTTON_W, BUTTON_H);
         }
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(OUTLINE);
-        for (int y = 0; y < grid.getHeight(); y++) {
-            for (int x = 0; x < grid.getWidth(); x++) {
+        for (int y = 0; y < visible.getHeight(); y++) {
+            for (int x = 0; x < visible.getWidth(); x++) {
                 shapes.rect(gridLeft + x * tileSize,
-                        gridBottom + (grid.getHeight() - y - 1) * tileSize,
+                        gridBottom + (visible.getHeight() - y - 1) * tileSize,
                         tileSize, tileSize);
             }
         }
         shapes.setColor(Color.LIGHT_GRAY);
-        for (int i = 0; i < BUTTONS.length; i++) {
+        for (int i = 0; i < buttons.length; i++) {
             shapes.rect(buttonsLeft + i * (BUTTON_W + BUTTON_GAP),
                     BUTTON_Y, BUTTON_W, BUTTON_H);
         }
@@ -188,10 +232,10 @@ public final class AStarDesktop extends ApplicationAdapter {
     }
 
     private Color tileColor(int x, int y) {
-        if (!grid.isWalkable(x, y)) return Color.BLACK;
+        if (!visibleGrid().isWalkable(x, y)) return Color.BLACK;
         Node node = new Node(x, y);
-        if (node.equals(start) || node.equals(finish)) return ENDPOINT;
-        if (search != null) {
+        if (node.equals(visibleStart()) || node.equals(visibleFinish())) return ENDPOINT;
+        if (editorGrid == null && search != null) {
             if (search.getPath().contains(node)) return PATH;
             if (search.getClosedNodes().contains(node)) return CLOSED;
             if (search.getOpenNodes().contains(node)) return OPEN;
@@ -200,28 +244,37 @@ public final class AStarDesktop extends ApplicationAdapter {
     }
 
     private void drawText() {
+        Grid visible = visibleGrid();
+        String[] buttons = visibleButtons();
         batch.begin();
         smallFont.setColor(Color.WHITE);
         normalFont.setColor(Color.WHITE);
         largeFont.setColor(Color.WHITE);
-        for (Node node : new Node[] {start, finish}) {
+        for (Node node : new Node[] {visibleStart(), visibleFinish()}) {
             if (node == null) continue;
-            String label = node.equals(start) ? "START" : "FINISH";
+            String label = node.equals(visibleStart()) ? "START" : "FINISH";
             float centerX = gridLeft + (node.getX() + .5f) * tileSize;
-            float baseline = gridBottom + (grid.getHeight() - node.getY() - .5f) * tileSize
+            float baseline = gridBottom + (visible.getHeight() - node.getY() - .5f) * tileSize
                     + smallFont.getCapHeight() / 2f;
             drawCentered(smallFont, label, centerX, baseline);
         }
-        float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth()) / 2f;
-        for (int i = 0; i < BUTTONS.length; i++) {
-            drawCentered(normalFont, BUTTONS[i], buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
+        float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth(buttons)) / 2f;
+        for (int i = 0; i < buttons.length; i++) {
+            drawCentered(normalFont, buttons[i], buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
                     BUTTON_Y + 24f);
         }
         drawCentered(largeFont, status(), Gdx.graphics.getWidth() / 2f, 132f);
-        drawCentered(normalFont, "Green: open   Red: closed   Light blue: path   Dark blue: endpoints",
-                Gdx.graphics.getWidth() / 2f, 48f);
-        drawCentered(normalFont, "Space: run/pause   N: step   +/-: speed   R: restart   C: choose tiles",
-                Gdx.graphics.getWidth() / 2f, 25f);
+        if (editorGrid != null) {
+            drawCentered(normalFont, "Paint or drag on the map. Eraser clears walls and endpoints.",
+                    Gdx.graphics.getWidth() / 2f, 48f);
+            drawCentered(normalFont, "1-4: tools   S: save   Esc: cancel   Delete: clear all",
+                    Gdx.graphics.getWidth() / 2f, 25f);
+        } else {
+            drawCentered(normalFont, "Green: open   Red: closed   Light blue: path   Dark blue: endpoints",
+                    Gdx.graphics.getWidth() / 2f, 48f);
+            drawCentered(normalFont, "Space: run/pause   N: step   +/-: speed   R: restart   E: edit map",
+                    Gdx.graphics.getWidth() / 2f, 25f);
+        }
         batch.end();
     }
 
@@ -231,11 +284,12 @@ public final class AStarDesktop extends ApplicationAdapter {
     }
 
     private String status() {
+        if (editorGrid != null) return "Editing map - " + editorTool.name().toLowerCase() + " selected";
         if (start == null) return "Click a white tile to choose START";
         if (finish == null) return "Click another white tile to choose FINISH";
         if (search == null) return "Ready - press Run/Pause or Step   |   " + stepsPerSecond + " steps/s";
         if (search.isFinished()) {
-            return search.getPath().isEmpty() ? "No path found - choose new tiles" :
+            return search.getPath().isEmpty() ? "No path found - edit map or endpoints" :
                     "Path found: " + (search.getPath().size() - 1) + " moves";
         }
         return (running ? "Searching" : "Paused") + "   |   " + stepsPerSecond
@@ -243,37 +297,128 @@ public final class AStarDesktop extends ApplicationAdapter {
                 + "   Closed " + search.getClosedNodes().size();
     }
 
-    private void onClick(float screenX, float screenY) {
-        float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth()) / 2f;
-        for (int i = 0; i < BUTTONS.length; i++) {
+    private boolean onClick(float screenX, float screenY) {
+        String[] buttons = visibleButtons();
+        float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth(buttons)) / 2f;
+        for (int i = 0; i < buttons.length; i++) {
             float left = buttonsLeft + i * (BUTTON_W + BUTTON_GAP);
             if (screenX >= left && screenX < left + BUTTON_W
                     && screenY >= BUTTON_Y && screenY < BUTTON_Y + BUTTON_H) {
-                switch (i) {
-                    case 0: toggleRunning(); break;
-                    case 1: stepOnce(); break;
-                    case 2: changeSpeed(-1); break;
-                    case 3: changeSpeed(1); break;
-                    case 4: restart(); break;
-                    case 5: chooseTiles(); break;
-                    default: break;
+                if (editorGrid != null) {
+                    switch (i) {
+                        case 0: editorTool = EditorTool.WALL; break;
+                        case 1: editorTool = EditorTool.ERASER; break;
+                        case 2: editorTool = EditorTool.START; break;
+                        case 3: editorTool = EditorTool.FINISH; break;
+                        case 4: saveEditor(); break;
+                        case 5: cancelEditor(); break;
+                        case 6: clearEditor(); break;
+                        default: break;
+                    }
+                } else {
+                    switch (i) {
+                        case 0: toggleRunning(); break;
+                        case 1: stepOnce(); break;
+                        case 2: changeSpeed(-1); break;
+                        case 3: changeSpeed(1); break;
+                        case 4: restart(); break;
+                        case 5: openEditor(); break;
+                        default: break;
+                    }
                 }
-                return;
+                return false;
             }
         }
+        if (editorGrid != null) return paintTile(screenX, screenY);
         int x = (int) ((screenX - gridLeft) / tileSize);
         int rowFromBottom = (int) ((screenY - gridBottom) / tileSize);
         if (screenX < gridLeft || screenY < gridBottom || x < 0 || x >= grid.getWidth()
-                || rowFromBottom < 0 || rowFromBottom >= grid.getHeight()) return;
+                || rowFromBottom < 0 || rowFromBottom >= grid.getHeight()) return false;
         int y = grid.getHeight() - rowFromBottom - 1;
-        if (!grid.isWalkable(x, y) || finish != null) return;
+        if (!grid.isWalkable(x, y) || finish != null) return false;
         Node selected = new Node(x, y);
         if (start == null) start = selected;
         else if (!selected.equals(start)) finish = selected;
+        return false;
     }
 
-    private static float buttonRowWidth() {
-        return BUTTONS.length * BUTTON_W + (BUTTONS.length - 1) * BUTTON_GAP;
+    private boolean paintTile(float screenX, float screenY) {
+        int x = (int) ((screenX - gridLeft) / tileSize);
+        int rowFromBottom = (int) ((screenY - gridBottom) / tileSize);
+        if (screenX < gridLeft || screenY < gridBottom || x < 0 || x >= editorGrid.getWidth()
+                || rowFromBottom < 0 || rowFromBottom >= editorGrid.getHeight()) return false;
+        int y = editorGrid.getHeight() - rowFromBottom - 1;
+        Node tile = new Node(x, y);
+        switch (editorTool) {
+            case WALL:
+                editorGrid = editorGrid.withWalkability(x, y, false);
+                clearEndpointAt(tile);
+                break;
+            case ERASER:
+                editorGrid = editorGrid.withWalkability(x, y, true);
+                clearEndpointAt(tile);
+                break;
+            case START:
+                editorGrid = editorGrid.withWalkability(x, y, true);
+                editorStart = tile;
+                if (tile.equals(editorFinish)) editorFinish = null;
+                break;
+            case FINISH:
+                editorGrid = editorGrid.withWalkability(x, y, true);
+                editorFinish = tile;
+                if (tile.equals(editorStart)) editorStart = null;
+                break;
+            default: break;
+        }
+        return true;
+    }
+
+    private void clearEndpointAt(Node tile) {
+        if (tile.equals(editorStart)) editorStart = null;
+        if (tile.equals(editorFinish)) editorFinish = null;
+    }
+
+    private void openEditor() {
+        resumeAfterCancel = running;
+        running = false;
+        editorGrid = grid;
+        editorStart = start;
+        editorFinish = finish;
+        editorTool = EditorTool.WALL;
+    }
+
+    private void saveEditor() {
+        Grid savedGrid = editorGrid;
+        Node savedStart = editorStart;
+        Node savedFinish = editorFinish;
+        replaceGrid(savedGrid);
+        start = savedStart;
+        finish = savedFinish;
+    }
+
+    private void cancelEditor() {
+        editorGrid = null;
+        editorStart = null;
+        editorFinish = null;
+        running = resumeAfterCancel;
+        painting = false;
+    }
+
+    private void clearEditor() {
+        boolean[][] cells = new boolean[editorGrid.getHeight()][editorGrid.getWidth()];
+        for (boolean[] row : cells) Arrays.fill(row, true);
+        editorGrid = new Grid(cells);
+        editorStart = null;
+        editorFinish = null;
+    }
+
+    private Grid visibleGrid() { return editorGrid == null ? grid : editorGrid; }
+    private Node visibleStart() { return editorGrid == null ? start : editorStart; }
+    private Node visibleFinish() { return editorGrid == null ? finish : editorFinish; }
+    private String[] visibleButtons() { return editorGrid == null ? BUTTONS : EDITOR_BUTTONS; }
+
+    private static float buttonRowWidth(String[] buttons) {
+        return buttons.length * BUTTON_W + (buttons.length - 1) * BUTTON_GAP;
     }
 
     private void ensureSearch() {
