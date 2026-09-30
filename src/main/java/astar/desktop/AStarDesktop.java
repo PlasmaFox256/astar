@@ -20,6 +20,8 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
 /** Interactive desktop view of the existing four-direction A* pathfinder. */
 public final class AStarDesktop extends ApplicationAdapter {
+    private static final int WINDOW_WIDTH = 1100;
+    private static final int WINDOW_HEIGHT = 790;
     private static final Color BACKGROUND = new Color(.12f, .14f, .18f, 1f);
     private static final Color PANEL = new Color(.18f, .21f, .26f, 1f);
     private static final Color OUTLINE = new Color(.27f, .27f, .27f, 1f);
@@ -47,15 +49,16 @@ public final class AStarDesktop extends ApplicationAdapter {
     private OrthographicCamera camera;
     private ShapeRenderer shapes;
     private SpriteBatch batch;
-    private BitmapFont font;
+    private BitmapFont smallFont;
+    private BitmapFont normalFont;
+    private BitmapFont largeFont;
     private GlyphLayout layout;
 
     public static void main(String[] args) {
         Lwjgl3ApplicationConfiguration config = new Lwjgl3ApplicationConfiguration();
         config.setTitle("A* Pathfinding Visualizer");
-        config.setWindowedMode(1100, 790);
-        config.setResizable(true);
-        config.setWindowSizeLimits(1000, 700, -1, -1);
+        config.setWindowedMode(WINDOW_WIDTH, WINDOW_HEIGHT);
+        config.setResizable(false);
         config.useVsync(true);
         new Lwjgl3Application(new AStarDesktop(PrebuiltLevel.create()), config);
     }
@@ -84,9 +87,10 @@ public final class AStarDesktop extends ApplicationAdapter {
         camera = new OrthographicCamera();
         shapes = new ShapeRenderer();
         batch = new SpriteBatch();
-        font = new BitmapFont();
+        smallFont = new BitmapFont(Gdx.files.classpath("fonts/ui-small.fnt"));
+        normalFont = new BitmapFont(Gdx.files.classpath("fonts/ui-normal.fnt"));
+        largeFont = new BitmapFont(Gdx.files.classpath("fonts/ui-large.fnt"));
         layout = new GlyphLayout();
-        font.getData().setScale(1.1f);
         resize(Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         Gdx.input.setInputProcessor(new InputAdapter() {
             @Override
@@ -120,10 +124,12 @@ public final class AStarDesktop extends ApplicationAdapter {
         }
         camera.setToOrtho(false, width, height);
         camera.update();
-        tileSize = Math.min((width - 40f) / grid.getWidth(),
-                (height - 175f) / grid.getHeight());
-        gridLeft = (width - tileSize * grid.getWidth()) / 2f;
-        gridBottom = 140f + (height - 155f - tileSize * grid.getHeight()) / 2f;
+        if (tileSize == 0f) {
+            tileSize = (float) Math.floor(Math.min((width - 40f) / grid.getWidth(),
+                    (height - 175f) / grid.getHeight()));
+        }
+        gridLeft = Math.round((width - tileSize * grid.getWidth()) / 2f);
+        gridBottom = Math.round(140f + (height - 155f - tileSize * grid.getHeight()) / 2f);
     }
 
     @Override
@@ -195,36 +201,33 @@ public final class AStarDesktop extends ApplicationAdapter {
 
     private void drawText() {
         batch.begin();
-        font.setColor(Color.WHITE);
-        font.getData().setScale(1f);
-        layout.setText(font, "FINISH");
-        font.getData().setScale(Math.min(.78f, (tileSize - 4f) / layout.width));
+        smallFont.setColor(Color.WHITE);
+        normalFont.setColor(Color.WHITE);
+        largeFont.setColor(Color.WHITE);
         for (Node node : new Node[] {start, finish}) {
             if (node == null) continue;
             String label = node.equals(start) ? "START" : "FINISH";
             float centerX = gridLeft + (node.getX() + .5f) * tileSize;
-            float baseline = gridBottom + (grid.getHeight() - node.getY() - .5f) * tileSize + 5f;
-            drawCentered(label, centerX, baseline);
+            float baseline = gridBottom + (grid.getHeight() - node.getY() - .5f) * tileSize
+                    + smallFont.getCapHeight() / 2f;
+            drawCentered(smallFont, label, centerX, baseline);
         }
-        font.getData().setScale(1f);
         float buttonsLeft = (Gdx.graphics.getWidth() - buttonRowWidth()) / 2f;
         for (int i = 0; i < BUTTONS.length; i++) {
-            drawCentered(BUTTONS[i], buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
+            drawCentered(normalFont, BUTTONS[i], buttonsLeft + i * (BUTTON_W + BUTTON_GAP) + BUTTON_W / 2f,
                     BUTTON_Y + 24f);
         }
-        font.getData().setScale(1.4f);
-        drawCentered(status(), Gdx.graphics.getWidth() / 2f, 132f);
-        font.getData().setScale(1f);
-        drawCentered("Green: open   Red: closed   Light blue: path   Dark blue: endpoints",
+        drawCentered(largeFont, status(), Gdx.graphics.getWidth() / 2f, 132f);
+        drawCentered(normalFont, "Green: open   Red: closed   Light blue: path   Dark blue: endpoints",
                 Gdx.graphics.getWidth() / 2f, 48f);
-        drawCentered("Space: run/pause   N: step   +/-: speed   R: restart   C: choose tiles",
+        drawCentered(normalFont, "Space: run/pause   N: step   +/-: speed   R: restart   C: choose tiles",
                 Gdx.graphics.getWidth() / 2f, 25f);
         batch.end();
     }
 
-    private void drawCentered(String text, float centerX, float baseline) {
+    private void drawCentered(BitmapFont font, String text, float centerX, float baseline) {
         layout.setText(font, text);
-        font.draw(batch, text, centerX - layout.width / 2f, baseline);
+        font.draw(batch, text, Math.round(centerX - layout.width / 2f), Math.round(baseline));
     }
 
     private String status() {
@@ -317,6 +320,8 @@ public final class AStarDesktop extends ApplicationAdapter {
     public void dispose() {
         shapes.dispose();
         batch.dispose();
-        font.dispose();
+        smallFont.dispose();
+        normalFont.dispose();
+        largeFont.dispose();
     }
 }

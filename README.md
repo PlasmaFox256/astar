@@ -1,12 +1,6 @@
 # A* pathfinding visualizer
 
-The desktop app uses LibGDX to show each expansion of the A* search on a
-prebuilt 24 × 16 grid. The map is defined in `PrebuiltLevel` independently of
-the renderer; a later level editor can create a `Grid` from its own cells or
-use `Grid.withWalkability()`, then pass it to `AStarDesktop.replaceGrid()` on
-the render thread. Replacing the map resets endpoint selection and search.
-
-To launch it, use JDK 8 or newer and run:
+To launch, use JDK 8 or newer and run:
 
 ```sh
 ./gradlew run
@@ -25,11 +19,6 @@ cannot be selected. Use the buttons or keyboard:
 | Adjust expansions per second | Slower / Faster | - / + |
 | Clear search and keep endpoints | Restart | R |
 | Choose new endpoints | Choose tiles | C |
-
-White is open floor, black is wall, green is the search frontier, red is
-expanded nodes, light blue is the final path, and dark blue marks the two
-endpoints. Every tile has a dark gray outline. The status line reports search
-progress and path length. The search accepts only cardinal moves.
 
 ## Pathfinder API
 
